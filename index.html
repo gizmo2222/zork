@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zork — The Great Underground Empire</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0a;
+    color: #c8c8c8;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 15px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  #game-wrapper {
+    width: 100%;
+    max-width: 780px;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #333;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  #title-bar {
+    background: #111;
+    border-bottom: 1px solid #333;
+    padding: 6px 14px;
+    display: flex;
+    justify-content: space-between;
+    color: #666;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+  }
+  #title-bar span.bright { color: #aaa; }
+  #output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    background: #0a0a0a;
+    scroll-behavior: smooth;
+  }
+  #output p {
+    margin: 0 0 6px 0;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  #output p.location { color: #fff; font-weight: bold; margin-top: 10px; }
+  #output p.narration { color: #c8c8c8; }
+  #output p.player-cmd { color: #6af; }
+  #output p.error { color: #e66; }
+  #output p.item { color: #fc8; }
+  #output p.score { color: #8f8; }
+  #output p.death { color: #f44; }
+  #output p.win { color: #ff4; }
+  #output p.separator { color: #333; margin: 8px 0; }
+  #input-row {
+    display: flex;
+    border-top: 1px solid #333;
+    background: #111;
+  }
+  #prompt-label {
+    padding: 10px 0 10px 14px;
+    color: #6af;
+    user-select: none;
+  }
+  #cmd-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #6af;
+    font-family: inherit;
+    font-size: inherit;
+    padding: 10px 6px;
+  }
+  #score-bar {
+    padding: 6px 14px;
+    background: #111;
+    border-top: 1px solid #333;
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    color: #555;
+  }
+  #score-bar span { color: #888; }
+</style>
+</head>
+<body>
+<div id="game-wrapper">
+  <div id="title-bar">
+    <span class="bright">ZORK — The Great Underground Empire</span>
+    <span>Copyright &copy; 1981 Infocom, Inc. (Fan Tribute)</span>
+  </div>
+  <div id="output"></div>
+  <div id="input-row">
+    <span id="prompt-label">&gt;</span>
+    <input id="cmd-input" type="text" autocomplete="off" autofocus spellcheck="false" placeholder="type a command..." />
+  </div>
+  <div id="score-bar">
+    Score: <span id="ui-score">0</span> &nbsp; Moves: <span id="ui-moves">0</span> &nbsp; Location: <span id="ui-loc">—</span>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────
+//  ZORK — Pure JS / HTML tribute
+//  Implements a faithful subset of the original Zork world.
+// ──────────────────────────────────────────────────────────────
+
+// ── Utilities ────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function out(text, cls = 'narration') {
+  const p = document.createElement('p');
+  p.className = cls;
+  p.textContent = text;
+  $('output').appendChild(p);
+  $('output').scrollTop = $('output').scrollHeight;
+}
+function sep() { out('──────────────────────────────', 'separator'); }
+
+// ── Game State ───────────────────────────────────────────────
+const G = {
+  location: 'west_of_house',
+  inventory: [],
+  score: 0,
+  moves: 0,
+  flags: {
+    lamp_on: false,
+    mailbox_open: false,
+    trapdoor_open: false,
+    trapdoor_locked: true,
+    egg_open: false,
+    troll_alive: true,
+    thief_alive: true,
+    cyclops_alive: true,
+    cyclops_frightened: false,
+    torch_lit: false,
+    dam_open: false,
+    tide_in: false,
+    leaflet_read: false,
+    grating_open: false,
+    grating_locked: true,
+    trophy_case_contains: [],
+    bottle_open: false,
+    bottle_has_water: true,
+  },
+  dead: false,
+  won: false,
+};
+
+// ── Items ─────────────────────────────────────────────────────
+const ITEMS = {
+  leaflet: {
+    name: 'leaflet',
+    desc: 'A small leaflet lies here.',
+    longDesc: '"WELCOME TO ZORK!\n\nZORK is a game of adventure, danger, and low cunning. In it you will explore some of the most amazing territory ever seen by mortal man. Hardened adventurers have run screaming from the terrors contained within!\n\nIn ZORK the intrepid explorer will uncover ancient Elvish words of great power, treasures beyond avarice, and other pleasantries.\n\n   — The Implementors"',
+    location: 'mailbox',
+    takeable: true,
+    treasure: false,
+  },
+  lamp: {
+    name: 'brass lantern',
+    desc: 'A brass lantern is here.',
+    longDesc: 'The brass lantern is old but functional. It will light your way in dark places.',
+    location: 'living_room',
+    takeable: true,
+    treasure: false,
+  },
+  sword: {
+    name: 'elvish sword',
+    desc: 'A shiny brass sword is lying in the corner.',
+    longDesc: 'The sword has a Elvish inscription on the blade.',
+    location: 'living_room',
+    takeable: true,
+    treasure: false,
+  },
+  trophy_case: {
+    name: 'trophy case',
+    desc: 'There is a trophy case here.',
+    longDesc: 'The trophy case is made of wood with a glass front.',
+    location: 'living_room',
+    takeable: false,
+    treasure: false,
+    isContainer: true,
+  },
+  rug: {
+    name: 'large oriental rug',
+    desc: 'There is a large oriental rug in the room.',
+    longDesc: 'A large oriental rug covers most of the floor. It is quite beautiful.',
+    location: 'living_room',
+    takeable: false,
+    treasure: false,
+  },
+  egg: {
+    name: 'jeweled egg',
+    desc: 'A large egg encrusted with precious jewels sits here.',
+    longDesc: 'The egg is covered in precious gems. It appears to open.',
+    location: 'up_a_tree',
+    takeable: true,
+    treasure: true,
+    points: 5,
+  },
+  canary: {
+    name: 'golden clockwork canary',
+    desc: 'A golden clockwork canary sits here.',
+    longDesc: 'A beautifully crafted clockwork canary made of gold. It could be wound up.',
+    location: null,
+    takeable: true,
+    treasure: true,
+    points: 6,
+  },
+  knife: {
+    name: 'rusty knife',
+    desc: 'A rusty knife lies on the ground.',
+    longDesc: 'A knife, rusty but serviceable.',
+    location: 'troll_room',
+    takeable: true,
+    treasure: false,
+  },
+  axe: {
+    name: 'troll\'s axe',
+    desc: 'A bloody axe is here.',
+    longDesc: 'A nasty-looking axe, stained with old blood.',
+    location: null,
+    takeable: true,
+    treasure: false,
+  },
+  torch: {
+    name: 'ivory torch',
+    desc: 'A torch is here.',
+    longDesc: 'A torch made of ivory. It burns with a fierce white light.',
+    location: 'dome_room',
+    takeable: true,
+    treasure: false,
+  },
+  rope: {
+    name: 'rope',
+    desc: 'A rope hangs here.',
+    longDesc: 'A sturdy coil of rope.',
+    location: 'attic',
+    takeable: true,
+    treasure: false,
+  },
+  garlic: {
+    name: 'clove of garlic',
+    desc: 'There is a clove of garlic here.',
+    longDesc: 'A pungent clove of garlic.',
+    location: 'kitchen',
+    takeable: true,
+    treasure: false,
+  },
+  water: {
+    name: 'bottle of water',
+    desc: 'There is a bottle of water here.',
+    longDesc: 'A glass bottle filled with water.',
+    location: 'kitchen',
+    takeable: true,
+    treasure: false,
+  },
+  trident: {
+    name: 'crystal trident',
+    desc: 'A crystal trident lies here.',
+    longDesc: 'A beautiful trident fashioned from pure crystal.',
+    location: 'sandy_beach',
+    takeable: true,
+    treasure: true,
+    points: 11,
+  },
+  coins: {
+    name: 'bag of coins',
+    desc: 'A bag of coins sits here.',
+    longDesc: 'A leather bag filled with gold coins.',
+    location: 'maze_1',
+    takeable: true,
+    treasure: true,
+    points: 10,
+  },
+  chalice: {
+    name: 'crystal chalice',
+    desc: 'A crystal chalice rests on a ledge.',
+    longDesc: 'A chalice carved from a single crystal, with golden inlay.',
+    location: 'altar',
+    takeable: true,
+    treasure: true,
+    points: 10,
+  },
+  skull: {
+    name: 'crystal skull',
+    desc: 'A grinning crystal skull sits on a plinth.',
+    longDesc: 'A life-sized crystal skull. Eerie.',
+    location: 'temple',
+    takeable: true,
+    treasure: true,
+    points: 10,
+  },
+  painting: {
+    name: 'painting',
+    desc: 'A valuable painting hangs on the wall.',
+    longDesc: 'An oil painting by an old master. Quite valuable.',
+    location: 'gallery',
+    takeable: true,
+    treasure: true,
+    points: 16,
+  },
+  sceptre: {
+    name: 'jeweled sceptre',
+    desc: 'A jeweled sceptre lies here.',
+    longDesc: 'A regal sceptre crusted with jewels.',
+    location: 'egypt_room',
+    takeable: true,
+    treasure: true,
+    points: 10,
+  },
+  key: {
+    name: 'skeleton key',
+    desc: 'A skeleton key lies on the floor.',
+    longDesc: 'An old skeleton key. It might open something.',
+    location: 'maze_2',
+    takeable: true,
+    treasure: false,
+  },
+  grating_key: {
+    name: 'rusty key',
+    desc: 'A rusty key lies in the dirt.',
+    longDesc: 'A rusty iron key.',
+    location: 'clearing',
+    takeable: true,
+    treasure: false,
+  },
+};
+
+// ── Rooms ─────────────────────────────────────────────────────
+const ROOMS = {
+  west_of_house: {
+    name: 'West of House',
+    desc: 'You are standing in an open field west of a white house, with a boarded front door. There is a small mailbox here.',
+    dark: false,
+    exits: { north: 'north_of_house', south: 'south_of_house', east: null, west: 'forest_1' },
+    items: ['mailbox'],
+    special_exits: {},
+  },
+  mailbox: {
+    name: 'Inside Mailbox',
+    desc: 'The small mailbox is here.',
+    virtual: true,
+  },
+  north_of_house: {
+    name: 'North of House',
+    desc: 'You are facing the north side of a white house. There is no door here, and all the windows are boarded up.',
+    dark: false,
+    exits: { west: 'west_of_house', east: 'behind_house', north: 'forest_1' },
+    items: [],
+    special_exits: {},
+  },
+  south_of_house: {
+    name: 'South of House',
+    desc: 'You are facing the south side of a white house. There is no door here, and all the windows are boarded.',
+    dark: false,
+    exits: { west: 'west_of_house', east: 'behind_house', south: 'forest_2' },
+    items: [],
+    special_exits: {},
+  },
+  behind_house: {
+    name: 'Behind House',
+    desc: 'You are behind the white house. A path leads into the forest to the east. In one corner of the house there is a small window which is slightly ajar.',
+    dark: false,
+    exits: { north: 'north_of_house', south: 'south_of_house', east: 'forest_2', west: null },
+    items: [],
+    special_exits: { window: 'kitchen' },
+  },
+  kitchen: {
+    name: 'Kitchen',
+    desc: 'You are in the kitchen of the white house. A table seems to have been used recently for the preparation of food. A passage leads to the west and a dark staircase can be seen leading upward. To the east is a small window which is open.',
+    dark: false,
+    exits: { west: 'living_room', up: 'attic', east: 'behind_house' },
+    items: ['garlic', 'water'],
+    special_exits: {},
+  },
+  attic: {
+    name: 'Attic',
+    desc: 'This is the attic. The only exit is a stairway leading down.',
+    dark: true,
+    exits: { down: 'kitchen' },
+    items: ['rope'],
+    special_exits: {},
+  },
+  living_room: {
+    name: 'Living Room',
+    desc: 'You are in the living room. There is a doorway to the east, a wooden door with strange gothic lettering to the west, which appears to be nailed shut, a trophy case, and a large oriental rug in the center of the room.',
+    dark: false,
+    exits: { east: 'kitchen', west: null, down: null },
+    items: ['lamp', 'sword', 'trophy_case', 'rug'],
+    special_exits: {},
+  },
+  cellar: {
+    name: 'Cellar',
+    desc: 'You are in a dark and damp cellar with a narrow passageway leading north and a crawlway to the south. On the west is the bottom of a steep metal ramp which is unclimbable.',
+    dark: true,
+    exits: { north: 'troll_room', south: 'east_of_chasm', up: 'living_room' },
+    items: [],
+    special_exits: {},
+  },
+  troll_room: {
+    name: 'Troll Room',
+    desc: 'This is a small room with passages to the east and south and a forbidding hole leading west. Bloodstains and deep scratches (perhaps made by an axe) mar the walls.',
+    dark: true,
+    exits: { east: 'east_of_chasm', south: 'cellar', west: 'maze_1' },
+    items: ['knife'],
+    special_exits: {},
+  },
+  east_of_chasm: {
+    name: 'East of Chasm',
+    desc: 'You are on the east edge of a chasm, the bottom of which cannot be seen. A narrow ledge has been cut into the rock to the north, with passages leading east and west as well. A sign reads: "CHASM JUMPERS ANONYMOUS".',
+    dark: true,
+    exits: { north: 'gallery', east: 'troll_room', south: 'dome_room', west: 'cellar' },
+    items: [],
+    special_exits: {},
+  },
+  gallery: {
+    name: 'Gallery',
+    desc: 'This is an art gallery. Most of the paintings have been stolen by vandals with exceptional taste. The vandals left one painting. There are exits to the south.',
+    dark: true,
+    exits: { south: 'east_of_chasm' },
+    items: ['painting'],
+    special_exits: {},
+  },
+  dome_room: {
+    name: 'Dome Room',
+    desc: 'You are at the top of a large dome. Passages lead north and south. A staircase leads down into gloom.',
+    dark: true,
+    exits: { north: 'east_of_chasm', down: 'torch_room', south: 'torch_room' },
+    items: ['torch'],
+    special_exits: {},
+  },
+  torch_room: {
+    name: 'Torch Room',
+    desc: 'This is a large room lit by a torch mounted on a wall bracket. Passages lead east and west.',
+    dark: false,
+    exits: { east: 'temple', west: 'egypt_room', up: 'dome_room' },
+    items: [],
+    special_exits: {},
+  },
+  temple: {
+    name: 'Temple',
+    desc: 'This is the Frigid River Temple. An altar is to the south. Passages lead west and north.',
+    dark: false,
+    exits: { west: 'torch_room', south: 'altar', north: 'sandy_beach' },
+    items: ['skull'],
+    special_exits: {},
+  },
+  altar: {
+    name: 'Altar',
+    desc: 'This is the west end of a large temple. An altar dominates the room. The passages lead east and north.',
+    dark: false,
+    exits: { north: 'temple', east: 'torch_room' },
+    items: ['chalice'],
+    special_exits: {},
+  },
+  egypt_room: {
+    name: 'Egypt Room',
+    desc: 'This is a room of the most exotic oriental decor. The walls are covered in hieroglyphics and the room smells of incense. There are passages to the east and west.',
+    dark: true,
+    exits: { east: 'torch_room', west: 'maze_2' },
+    items: ['sceptre'],
+    special_exits: {},
+  },
+  sandy_beach: {
+    name: 'Sandy Beach',
+    desc: 'You are on a sandy beach at the end of a long valley. The beach slopes down to the Frigid River. A narrow path leads north.',
+    dark: false,
+    exits: { north: 'frigid_river', south: 'temple' },
+    items: ['trident'],
+    special_exits: {},
+  },
+  frigid_river: {
+    name: 'Frigid River',
+    desc: 'You are on the north shore of the Frigid River. The river flows east to west here. The shore is rocky and cold.',
+    dark: false,
+    exits: { south: 'sandy_beach' },
+    items: [],
+    special_exits: {},
+  },
+  maze_1: {
+    name: 'Maze',
+    desc: 'You are in a maze of twisty little passages, all alike.',
+    dark: true,
+    exits: { east: 'troll_room', north: 'maze_2', south: 'maze_3', west: 'maze_1' },
+    items: ['coins'],
+    special_exits: {},
+  },
+  maze_2: {
+    name: 'Maze',
+    desc: 'You are in a maze of twisty little passages, all alike.',
+    dark: true,
+    exits: { east: 'egypt_room', north: 'maze_1', west: 'maze_3', down: 'maze_3' },
+    items: ['key'],
+    special_exits: {},
+  },
+  maze_3: {
+    name: 'Maze',
+    desc: 'You are in a maze of twisty little passages, all alike.',
+    dark: true,
+    exits: { north: 'maze_1', east: 'maze_2', south: 'cellar' },
+    items: [],
+    special_exits: {},
+  },
+  forest_1: {
+    name: 'Forest',
+    desc: 'This is a forest, with trees in all directions. To the east, there appears to be sunlight.',
+    dark: false,
+    exits: { east: 'west_of_house', south: 'forest_2', north: 'clearing', west: 'forest_1', up: 'up_a_tree' },
+    items: [],
+    special_exits: {},
+  },
+  up_a_tree: {
+    name: 'Up a Tree',
+    desc: 'You are about 10 feet above the ground nestled among some large branches. The nearest branch to the east is within reach. Below you is the forest.',
+    dark: false,
+    exits: { down: 'forest_1', east: null },
+    items: ['egg'],
+    special_exits: {},
+  },
+  forest_2: {
+    name: 'Forest',
+    desc: 'This is a dimly lit forest, with large trees on all sides. The wind whispers through the branches.',
+    dark: false,
+    exits: { north: 'forest_1', east: 'south_of_house', south: 'clearing', west: 'forest_2' },
+    items: [],
+    special_exits: {},
+  },
+  clearing: {
+    name: 'Clearing',
+    desc: 'You are in a small clearing in a well worn path. There is a grating here set into the ground, closed and locked.',
+    dark: false,
+    exits: { north: 'forest_2', west: 'forest_1', south: null, down: null },
+    items: ['grating_key'],
+    special_exits: {},
+  },
+};
+
+// ── Helper: inventory item lookup ─────────────────────────────
+function findItem(words) {
+  // Check inventory first
+  for (const id of G.inventory) {
+    const item = ITEMS[id];
+    if (words.some(w => item.name.toLowerCase().includes(w))) return id;
+  }
+  // Then room items
+  const room = ROOMS[G.location];
+  if (room && room.items) {
+    for (const id of room.items) {
+      const item = ITEMS[id];
+      if (words.some(w => item.name.toLowerCase().includes(w))) return id;
+    }
+  }
+  return null;
+}
+
+function hasItem(id) { return G.inventory.includes(id); }
+function lampLit() { return hasItem('lamp') && G.flags.lamp_on; }
+function hasTorch() { return hasItem('torch') && G.flags.torch_lit; }
+function isLit() {
+  const room = ROOMS[G.location];
+  if (!room) return true;
+  if (!room.dark) return true;
+  return lampLit() || hasTorch();
+}
+
+// ── Score / Trophy Case ───────────────────────────────────────
+const MAX_SCORE = 350;
+
+function addScore(pts) {
+  G.score += pts;
+  $('ui-score').textContent = G.score;
+  out(`[Your score has just gone up by ${pts} points.]`, 'score');
+}
+
+function putInTrophyCase(id) {
+  if (!G.flags.trophy_case_contains.includes(id)) {
+    G.flags.trophy_case_contains.push(id);
+    addScore(ITEMS[id].points || 0);
+  }
+}
+
+// ── Look ──────────────────────────────────────────────────────
+function look(verbose = true) {
+  const room = ROOMS[G.location];
+  if (!room) { out('You are in an undefined void.', 'error'); return; }
+  if (!isLit()) {
+    out('It is pitch black. You are likely to be eaten by a grue.', 'narration');
+    if (Math.random() < 0.25) {
+      out('Oh no! A grue has found you in the dark!', 'death');
+      die('eaten by a grue');
+    }
+    return;
+  }
+  out(room.name, 'location');
+  if (verbose) out(room.desc, 'narration');
+  // List items in room
+  if (room.items && room.items.length > 0) {
+    for (const id of room.items) {
+      if (id === 'mailbox') {
+        out(`There is a small mailbox here${G.flags.mailbox_open ? ' (open)' : ''}.`, 'item');
+        if (G.flags.mailbox_open && ITEMS.leaflet.location === 'mailbox') {
+          out('  ' + ITEMS.leaflet.desc, 'item');
+        }
+      } else if (ITEMS[id] && ITEMS[id].location !== 'trophy_case') {
+        out(ITEMS[id].desc, 'item');
+      }
+    }
+  }
+  // Troll
+  if (G.location === 'troll_room' && G.flags.troll_alive) {
+    out('A nasty-looking troll, brandishing a bloody axe, blocks all passages out of the room.', 'narration');
+  }
+  // Exits
+  const exits = Object.entries(room.exits || {}).filter(([, v]) => v).map(([k]) => k);
+  if (exits.length) out('Exits: ' + exits.join(', '), 'narration');
+}
+
+// ── Movement ──────────────────────────────────────────────────
+const DIR_ALIASES = {
+  n: 'north', s: 'south', e: 'east', w: 'west',
+  u: 'up', d: 'down', ne: 'northeast', nw: 'northwest',
+  se: 'southeast', sw: 'southwest',
+};
+
+function move(dir) {
+  dir = DIR_ALIASES[dir] || dir;
+  const room = ROOMS[G.location];
+
+  // Special: trapdoor in living room
+  if (G.location === 'living_room' && dir === 'down') {
+    if (!G.flags.trapdoor_open) {
+      out('The trapdoor is closed.', 'narration'); return;
+    }
+    if (!isLit()) {
+      out('You stumble into darkness and fall to your doom.', 'death');
+      die('fell into the cellar in the dark'); return;
+    }
+    G.location = 'cellar';
+    look(); return;
+  }
+
+  // Special: clearing grating
+  if (G.location === 'clearing' && dir === 'down') {
+    if (!G.flags.grating_open) {
+      out('The grating is closed and locked.', 'narration'); return;
+    }
+    G.location = 'cellar';
+    look(); return;
+  }
+
+  // Troll blocks passage
+  if (G.location === 'troll_room' && G.flags.troll_alive) {
+    out('The troll blocks your way, snarling!', 'narration'); return;
+  }
+
+  // Window shortcut
+  if (G.location === 'behind_house' && (dir === 'window' || dir === 'west' || dir === 'in')) {
+    G.location = 'kitchen';
+    out('You climb through the window.', 'narration');
+    look(); return;
+  }
+
+  const dest = room.exits && room.exits[dir];
+  if (!dest) {
+    out('You can\'t go that way.', 'error'); return;
+  }
+  G.location = dest;
+  look();
+}
+
+// ── Die ───────────────────────────────────────────────────────
+function die(cause) {
+  G.dead = true;
+  out(`\n*** YOU HAVE DIED ***\n\nYou were ${cause}.`, 'death');
+  out(`Your score was ${G.score}. Type RESTART to play again.`, 'score');
+}
+
+// ── Combat ────────────────────────────────────────────────────
+function attack(target) {
+  const words = target.toLowerCase().split(/\s+/);
+  if (words.some(w => ['troll'].includes(w))) {
+    if (G.location !== 'troll_room') { out('There is no troll here.', 'error'); return; }
+    if (!G.flags.troll_alive) { out('The troll is already dead.', 'narration'); return; }
+    if (!hasItem('sword') && !hasItem('knife') && !hasItem('axe')) {
+      out('You must be joking. The troll nicks you with his axe!', 'narration');
+      die('sliced by the troll'); return;
+    }
+    if (Math.random() < 0.5) {
+      G.flags.troll_alive = false;
+      ROOMS.troll_room.items.push('axe');
+      ITEMS.axe.location = 'troll_room';
+      out('The troll swings his axe, but you dodge! You land a killing blow. The troll slumps to the floor.', 'narration');
+      addScore(5);
+    } else {
+      out('You swing at the troll but miss! The troll sneers.', 'narration');
+    }
+    return;
+  }
+  if (words.some(w => ['cyclops'].includes(w))) {
+    if (G.location !== 'cyclops_room') { out('There is no cyclops here.', 'error'); return; }
+    if (!G.flags.cyclops_alive) { out('The cyclops is gone.', 'narration'); return; }
+    out('The cyclops laughs at your puny attack and prepares to eat you!', 'narration');
+    die('eaten by the cyclops'); return;
+  }
+  out('Violence isn\'t the answer to this problem.', 'narration');
+}
+
+// ── Commands ──────────────────────────────────────────────────
+function cmdLook(args) { look(true); }
+
+function cmdInventory() {
+  if (G.inventory.length === 0) { out('You are empty-handed.', 'narration'); return; }
+  out('You are carrying:', 'narration');
+  for (const id of G.inventory) {
+    let extra = '';
+    if (id === 'lamp') extra = G.flags.lamp_on ? ' (providing light)' : ' (off)';
+    if (id === 'torch') extra = G.flags.torch_lit ? ' (burning)' : ' (unlit)';
+    out('  ' + ITEMS[id].name + extra, 'item');
+  }
+}
+
+function cmdTake(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  // Take all
+  if (words.includes('all')) {
+    const room = ROOMS[G.location];
+    if (!room || !room.items || room.items.length === 0) {
+      out('There is nothing here to take.', 'narration'); return;
+    }
+    let took = false;
+    for (const id of [...room.items]) {
+      if (!ITEMS[id] || !ITEMS[id].takeable) continue;
+      if (id === 'mailbox') continue;
+      room.items = room.items.filter(i => i !== id);
+      G.inventory.push(id);
+      ITEMS[id].location = 'inventory';
+      out('Taken: ' + ITEMS[id].name, 'item');
+      took = true;
+    }
+    if (!took) out('There is nothing here you can take.', 'narration');
+    return;
+  }
+
+  // Leaflet from mailbox
+  if (words.some(w => 'leaflet'.includes(w) && w.length > 2)) {
+    if (ITEMS.leaflet.location === 'mailbox') {
+      if (!G.flags.mailbox_open) { out('The mailbox is closed.', 'narration'); return; }
+      ITEMS.leaflet.location = 'inventory';
+      G.inventory.push('leaflet');
+      out('Taken.', 'narration');
+      return;
+    }
+  }
+
+  const id = findItem(words);
+  if (!id) { out('I don\'t see that here.', 'error'); return; }
+  if (!ITEMS[id].takeable) { out('You can\'t take the ' + ITEMS[id].name + '.', 'error'); return; }
+  if (G.inventory.includes(id)) { out('You\'re already holding that.', 'narration'); return; }
+  // Remove from room
+  const room = ROOMS[G.location];
+  if (room && room.items) room.items = room.items.filter(i => i !== id);
+  if (ITEMS[id].location === 'mailbox') ITEMS.leaflet.location = 'inventory'; // fix
+  G.inventory.push(id);
+  ITEMS[id].location = 'inventory';
+  out('Taken.', 'item');
+}
+
+function cmdDrop(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  const id = G.inventory.find(i => words.some(w => ITEMS[i].name.toLowerCase().includes(w) && w.length > 1));
+  if (!id) { out('You aren\'t carrying that.', 'error'); return; }
+  G.inventory = G.inventory.filter(i => i !== id);
+  ITEMS[id].location = G.location;
+  ROOMS[G.location].items = ROOMS[G.location].items || [];
+  ROOMS[G.location].items.push(id);
+  out('Dropped.', 'narration');
+}
+
+function cmdExamine(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  // Mailbox
+  if (words.some(w => 'mailbox'.includes(w) && w.length > 2)) {
+    out('The mailbox is a small metal box' + (G.flags.mailbox_open ? ' (open).' : ' (closed).'), 'narration');
+    if (G.flags.mailbox_open && ITEMS.leaflet.location === 'mailbox') {
+      out('Inside is: a leaflet.', 'item');
+    }
+    return;
+  }
+  // Trapdoor
+  if (words.some(w => 'trapdoor'.includes(w) && w.length > 3)) {
+    out('A wooden trapdoor in the floor. It is ' + (G.flags.trapdoor_open ? 'open.' : 'closed.'), 'narration');
+    return;
+  }
+  // Trophy case
+  if (words.some(w => 'trophy'.includes(w) || 'case'.includes(w))) {
+    out('The trophy case is made of glass and wood.', 'narration');
+    if (G.flags.trophy_case_contains.length === 0) {
+      out('It is empty.', 'narration');
+    } else {
+      out('It contains:', 'narration');
+      for (const id of G.flags.trophy_case_contains) out('  ' + ITEMS[id].name, 'item');
+    }
+    return;
+  }
+  // Rug
+  if (words.some(w => 'rug'.includes(w))) {
+    if (G.location === 'living_room') {
+      out('The rug is quite beautiful. You notice it is slightly loose on one side. Beneath it is a trapdoor!', 'narration');
+    } else {
+      out('There is no rug here.', 'error');
+    }
+    return;
+  }
+  // Grating
+  if (words.some(w => 'grating'.includes(w))) {
+    out('A metal grating set into the ground. It is ' + (G.flags.grating_open ? 'open.' : 'closed and locked.'), 'narration');
+    return;
+  }
+  // Inventory or room items
+  const id = findItem(words);
+  if (!id) { out('I don\'t see that here.', 'error'); return; }
+  out(ITEMS[id].longDesc, 'narration');
+}
+
+function cmdRead(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  const id = findItem(words);
+  if (id === 'leaflet') {
+    if (!G.flags.leaflet_read) { G.flags.leaflet_read = true; addScore(1); }
+    out(ITEMS.leaflet.longDesc, 'narration');
+    return;
+  }
+  if (!id) { out('I don\'t see that here.', 'error'); return; }
+  out('There is nothing to read on the ' + ITEMS[id].name + '.', 'narration');
+}
+
+function cmdOpen(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  if (words.some(w => 'mailbox'.includes(w) && w.length > 2)) {
+    if (G.location !== 'west_of_house') { out('There is no mailbox here.', 'error'); return; }
+    G.flags.mailbox_open = true;
+    out('Opening the small mailbox reveals a leaflet.', 'narration');
+    return;
+  }
+  if (words.some(w => 'trapdoor'.includes(w) && w.length > 3)) {
+    if (G.location !== 'living_room') { out('There is no trapdoor here.', 'error'); return; }
+    G.flags.trapdoor_open = true;
+    G.flags.trapdoor_locked = false;
+    out('You open the trapdoor, revealing a staircase leading down into darkness.', 'narration');
+    return;
+  }
+  if (words.some(w => 'grating'.includes(w))) {
+    if (G.location !== 'clearing') { out('There is no grating here.', 'error'); return; }
+    if (!hasItem('grating_key')) { out('The grating is locked. You need a key.', 'narration'); return; }
+    G.flags.grating_open = true;
+    G.flags.grating_locked = false;
+    out('You unlock and open the grating. A passageway leads down.', 'narration');
+    return;
+  }
+  if (words.some(w => 'egg'.includes(w))) {
+    const id = findItem(['egg']);
+    if (!id) { out('There is no egg here.', 'error'); return; }
+    if (G.flags.egg_open) { out('The egg is already open.', 'narration'); return; }
+    G.flags.egg_open = true;
+    ITEMS.canary.location = G.location;
+    ROOMS[G.location].items = ROOMS[G.location].items || [];
+    ROOMS[G.location].items.push('canary');
+    out('As you open the jeweled egg, a golden clockwork canary drops out!', 'narration');
+    return;
+  }
+  if (words.some(w => 'door'.includes(w))) {
+    out('The door is nailed shut.', 'narration'); return;
+  }
+  out('I don\'t know how to open that.', 'narration');
+}
+
+function cmdClose(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  if (words.some(w => 'mailbox'.includes(w) && w.length > 2)) {
+    G.flags.mailbox_open = false;
+    out('Closed.', 'narration'); return;
+  }
+  out('I don\'t know how to close that.', 'narration');
+}
+
+function cmdLight(args) {
+  const words = args.toLowerCase().split(/\s+/);
+  if (words.some(w => ['lamp', 'lantern'].includes(w))) {
+    if (!hasItem('lamp')) { out('You don\'t have the lamp.', 'error'); return; }
+    G.flags.lamp_on = !G.flags.lamp_on;
+    out(G.flags.lamp_on ? 'The lamp is now on.' : 'The lamp is now off.', 'narration'); return;
+  }
+  if (words.some(w => 'torch'.includes(w))) {
+    if (!hasItem('torch')) { out('You don\'t have the torch.', 'error'); return; }
+    G.flags.torch_lit = !G.flags.torch_lit;
+    out(G.flags.torch_lit ? 'The torch blazes to life.' : 'The torch goes out.', 'narration'); return;
+  }
+  // Bare "light" — try lamp first
+  if (hasItem('lamp')) { G.flags.lamp_on = true; out('The lamp is now on.', 'narration'); return; }
+  out('You have nothing to light.', 'narration');
+}
+
+function cmdPutIn(args) {
+  // "put X in/into Y"
+  const lower = args.toLowerCase();
+  const match = lower.match(/(.+?)\s+(?:in|into|on)\s+(.+)/);
+  if (!match) { out('Put what where?', 'error'); return; }
+  const [, what, container] = match;
+  const whatWords = what.split(/\s+/);
+  const contWords = container.split(/\s+/);
+
+  // Trophy case
+  if (contWords.some(w => 'trophy'.includes(w) || 'case'.includes(w))) {
+    if (G.location !== 'living_room') { out('There is no trophy case here.', 'error'); return; }
+    const id = G.inventory.find(i => whatWords.some(w => ITEMS[i].name.toLowerCase().includes(w) && w.length > 1));
+    if (!id) { out('You aren\'t carrying that.', 'error'); return; }
+    if (!ITEMS[id].treasure) { out('That doesn\'t belong in the trophy case.', 'narration'); return; }
+    G.inventory = G.inventory.filter(i => i !== id);
+    ITEMS[id].location = 'trophy_case';
+    putInTrophyCase(id);
+    out('Done. The ' + ITEMS[id].name + ' gleams in the trophy case.', 'item');
+    checkWin();
+    return;
+  }
+  out('I can\'t put that there.', 'narration');
+}
+
+function cmdScore() {
+  out(`Your score is ${G.score} out of a possible ${MAX_SCORE}, in ${G.moves} moves.`, 'score');
+}
+
+function cmdHelp() {
+  out('Commands:', 'narration');
+  out('  LOOK (L) — describe surroundings', 'narration');
+  out('  GO <dir> — move (NORTH/SOUTH/EAST/WEST/UP/DOWN, or N/S/E/W/U/D)', 'narration');
+  out('  TAKE/GET <item> — pick up an item (or TAKE ALL)', 'narration');
+  out('  DROP <item> — drop an item', 'narration');
+  out('  INVENTORY (I) — list carried items', 'narration');
+  out('  EXAMINE (X) <item> — examine an item', 'narration');
+  out('  READ <item> — read an item', 'narration');
+  out('  OPEN/CLOSE <thing> — open or close things', 'narration');
+  out('  LIGHT/EXTINGUISH <lamp/torch> — toggle light source', 'narration');
+  out('  PUT <item> IN <container> — place item in container', 'narration');
+  out('  ATTACK/KILL <enemy> — fight an enemy', 'narration');
+  out('  SCORE — show your score', 'narration');
+  out('  RESTART — start over', 'narration');
+  out('  VERBOSE — always show full room descriptions', 'narration');
+}
+
+// Track verbose mode
+let VERBOSE = false;
+
+function cmdVerbose() {
+  VERBOSE = !VERBOSE;
+  out(VERBOSE ? 'Maximum verbosity.' : 'Brief descriptions.', 'narration');
+}
+
+// ── Win Condition ─────────────────────────────────────────────
+const TREASURES = ['egg', 'canary', 'trident', 'coins', 'chalice', 'skull', 'painting', 'sceptre'];
+
+function checkWin() {
+  const allIn = TREASURES.every(t => G.flags.trophy_case_contains.includes(t));
+  if (allIn) {
+    G.won = true;
+    out('\n*** YOU HAVE WON ***\n\nYou have collected all the treasures and placed them in the trophy case!', 'win');
+    addScore(100);
+    out(`Final score: ${G.score} of ${MAX_SCORE}. Rank: ${getRank()}.`, 'score');
+  }
+}
+
+function getRank() {
+  const s = G.score;
+  if (s >= 350) return 'Master Adventurer';
+  if (s >= 200) return 'Adventurer';
+  if (s >= 100) return 'Brave Novice';
+  if (s >= 50) return 'Novice';
+  return 'Beginner';
+}
+
+// ── Restart ───────────────────────────────────────────────────
+function restart() {
+  location.reload();
+}
+
+// ── Parser ────────────────────────────────────────────────────
+function parse(raw) {
+  const input = raw.trim().toLowerCase();
+  if (!input) return;
+
+  out('> ' + raw, 'player-cmd');
+  G.moves++;
+  $('ui-moves').textContent = G.moves;
+  $('ui-loc').textContent = ROOMS[G.location] ? ROOMS[G.location].name : '?';
+
+  if (G.dead || G.won) {
+    if (input === 'restart') { restart(); return; }
+    out('Type RESTART to play again.', 'narration'); return;
+  }
+
+  const words = input.split(/\s+/);
+  const verb = words[0];
+  const rest = words.slice(1).join(' ');
+
+  // Direction shortcut
+  if (DIR_ALIASES[verb] || ['north','south','east','west','up','down','northeast','northwest','southeast','southwest'].includes(verb)) {
+    move(verb); return;
+  }
+  // Go <dir>
+  if (verb === 'go' && rest) { move(rest); return; }
+  // Enter/climb window
+  if ((verb === 'enter' || verb === 'climb') && rest.includes('window')) { move('window'); return; }
+  if ((verb === 'enter' || verb === 'climb') && rest.includes('tree')) { move('up'); return; }
+
+  switch(verb) {
+    case 'look': case 'l': cmdLook(rest); break;
+    case 'inventory': case 'i': cmdInventory(); break;
+    case 'take': case 'get': case 'pick':
+      cmdTake(rest || 'all'); break;
+    case 'drop': case 'put':
+      if (rest.match(/\s+(?:in|into|on)\s+/)) { cmdPutIn(rest); break; }
+      cmdDrop(rest); break;
+    case 'examine': case 'x': case 'look at': case 'inspect':
+      cmdExamine(rest || words.slice(1).join(' ')); break;
+    case 'read': cmdRead(rest); break;
+    case 'open': cmdOpen(rest); break;
+    case 'close': cmdClose(rest); break;
+    case 'light': case 'turn': case 'switch':
+      if (rest.match(/off/)) {
+        G.flags.lamp_on = false; G.flags.torch_lit = false;
+        out('Off.', 'narration');
+      } else {
+        cmdLight(rest.replace(/^(on|off)\s*/,''));
+      }
+      break;
+    case 'extinguish': case 'douse':
+      G.flags.lamp_on = false; G.flags.torch_lit = false;
+      out('Extinguished.', 'narration'); break;
+    case 'attack': case 'kill': case 'fight': case 'hit': case 'stab':
+      attack(rest); break;
+    case 'score': cmdScore(); break;
+    case 'help': case '?': cmdHelp(); break;
+    case 'verbose': cmdVerbose(); break;
+    case 'restart': restart(); break;
+    case 'quit': case 'q':
+      out('Come back soon, adventurer.', 'narration');
+      G.dead = true; break;
+    case 'wait': case 'z':
+      out('Time passes.', 'narration'); break;
+    case 'xyzzy': case 'plugh':
+      out('A hollow voice says "Fool."', 'narration'); break;
+    default:
+      out('I don\'t understand that command. Type HELP for assistance.', 'error');
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────
+function init() {
+  out('ZORK I: The Great Underground Empire', 'location');
+  out('Copyright (c) 1981, 1982, 1983 Infocom, Inc.', 'narration');
+  out('All rights reserved.', 'narration');
+  out('Zork is a registered trademark of Infocom, Inc.', 'narration');
+  out('(Fan tribute — this is a JavaScript recreation for educational purposes.)', 'narration');
+  sep();
+  G.location = 'west_of_house';
+  look(true);
+  sep();
+}
+
+// ── Input Handling ─────────────────────────────────────────────
+const input = $('cmd-input');
+const historyStack = [];
+let historyIdx = -1;
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const val = input.value;
+    if (val.trim()) {
+      historyStack.unshift(val);
+      historyIdx = -1;
+    }
+    input.value = '';
+    parse(val);
+  } else if (e.key === 'ArrowUp') {
+    if (historyIdx < historyStack.length - 1) {
+      historyIdx++;
+      input.value = historyStack[historyIdx];
+    }
+    e.preventDefault();
+  } else if (e.key === 'ArrowDown') {
+    if (historyIdx > 0) {
+      historyIdx--;
+      input.value = historyStack[historyIdx];
+    } else {
+      historyIdx = -1;
+      input.value = '';
+    }
+    e.preventDefault();
+  }
+});
+
+init();
+</script>
+</body>
+</html>
