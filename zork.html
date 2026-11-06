@@ -99,10 +99,10 @@
     <span class="bright">ZORK — The Great Underground Empire</span>
     <span>Copyright &copy; 1981 Infocom, Inc. (Fan Tribute)</span>
   </div>
-  <div id="output"></div>
+  <div id="output" role="log" aria-live="polite" aria-label="Game transcript"></div>
   <div id="input-row">
-    <span id="prompt-label">&gt;</span>
-    <input id="cmd-input" type="text" autocomplete="off" autofocus spellcheck="false" placeholder="type a command..." />
+    <span id="prompt-label" aria-hidden="true">&gt;</span>
+    <input id="cmd-input" type="text" aria-label="Command" autocomplete="off" autofocus spellcheck="false" placeholder="type a command..." />
   </div>
   <div id="score-bar">
     Score: <span id="ui-score">0</span> &nbsp; Moves: <span id="ui-moves">0</span> &nbsp; Location: <span id="ui-loc">—</span>
@@ -122,6 +122,7 @@ function out(text, cls = 'narration') {
   const p = document.createElement('p');
   p.className = cls;
   p.textContent = text;
+  if (cls === 'separator') p.setAttribute('aria-hidden', 'true');   // decorative rule, not read aloud
   $('output').appendChild(p);
   $('output').scrollTop = $('output').scrollHeight;
 }
