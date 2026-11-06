@@ -1092,8 +1092,14 @@ function runCommand(input) {
   // Go <dir>
   if (verb === 'go' && rest) { move(rest.replace(/^(?:to\s+)?(?:the\s+)?/, '')); return; }   // "go to the north"
   // Enter/climb window
-  if ((verb === 'enter' || verb === 'climb') && rest.includes('window')) { move('window'); return; }
-  if ((verb === 'enter' || verb === 'climb') && rest.includes('tree')) { move('up'); return; }
+  if ((verb === 'enter' || verb === 'climb') && rest.includes('window')) {
+    move(G.location === 'kitchen' ? 'east' : 'window'); return;   // the window works from inside too
+  }
+  if (verb === 'climb') {
+    const treeHere = G.location === 'forest_1' || G.location === 'up_a_tree';
+    if (/\btree\b/.test(rest) && !treeHere) { out('There is no climbable tree here.', 'error'); return; }
+    move(/\bdown\b/.test(rest) ? 'down' : 'up'); return;   // "climb tree", "climb stairs", "climb down"
+  }
 
   switch(verb) {
     case 'look': case 'l':
