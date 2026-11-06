@@ -12,6 +12,7 @@
     font-family: 'Courier New', Courier, monospace;
     font-size: 15px;
     height: 100vh;
+    height: 100dvh;   /* the visible height, so the phone's toolbar and keyboard don't hide the input */
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -22,6 +23,7 @@
     width: 100%;
     max-width: 780px;
     height: 90vh;
+    height: 90dvh;
     display: flex;
     flex-direction: column;
     border: 1px solid #333;
@@ -82,7 +84,7 @@
     outline: none;
     color: #6af;
     font-family: inherit;
-    font-size: inherit;
+    font-size: 16px;   /* below 16px, iOS zooms the page when the input gets focus */
     padding: 10px 6px;
   }
   #cmd-input::placeholder { color: #8a8a8a; opacity: 1; }
@@ -91,26 +93,35 @@
     background: #111;
     border-top: 1px solid #333;
     display: flex;
-    gap: 24px;
+    flex-wrap: wrap;
+    gap: 2px 24px;
     font-size: 12px;
     color: #999;
   }
-  #score-bar span { color: #ddd; }
+  #score-bar .val { color: #ddd; }
+  @media (max-width: 480px) {
+    body { padding: 0; }
+    #game-wrapper { height: 100vh; height: 100dvh; border: none; border-radius: 0; }
+    #title-bar .credit { display: none; }
+    #output { padding: 12px; }
+  }
 </style>
 </head>
 <body>
 <div id="game-wrapper">
   <div id="title-bar">
     <span class="bright">ZORK — The Great Underground Empire</span>
-    <span>Copyright &copy; 1981 Infocom, Inc. (Fan Tribute)</span>
+    <span class="credit">Copyright &copy; 1981 Infocom, Inc. (Fan Tribute)</span>
   </div>
   <div id="output" role="log" aria-live="polite" aria-label="Game transcript"></div>
   <div id="input-row">
     <span id="prompt-label" aria-hidden="true">&gt;</span>
-    <input id="cmd-input" type="text" aria-label="Command" autocomplete="off" autofocus spellcheck="false" placeholder="type a command..." />
+    <input id="cmd-input" type="text" aria-label="Command" autocomplete="off" autocapitalize="off" autocorrect="off" enterkeyhint="send" autofocus spellcheck="false" placeholder="type a command..." />
   </div>
   <div id="score-bar">
-    Score: <span id="ui-score">0</span> &nbsp; Moves: <span id="ui-moves">0</span> &nbsp; Location: <span id="ui-loc">—</span>
+    <span>Score: <span id="ui-score" class="val">0</span></span>
+    <span>Moves: <span id="ui-moves" class="val">0</span></span>
+    <span>Location: <span id="ui-loc" class="val">—</span></span>
   </div>
 </div>
 
@@ -1184,6 +1195,9 @@ function init() {
 const input = $('cmd-input');
 const historyStack = [];
 let historyIdx = -1;
+
+// Tapping the transcript brings the keyboard back, unless the player is selecting text to copy
+$('output').addEventListener('click', () => { if (!String(window.getSelection())) input.focus(); });
 
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
