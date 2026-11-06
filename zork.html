@@ -822,11 +822,13 @@ function cmdDrop(args) {
   const words = objWords(args);
   const id = bestMatch(G.inventory, words);
   if (!id) { out('You aren\'t carrying that.', 'error'); return; }
+  const wasLit = isLit();
   G.inventory = G.inventory.filter(i => i !== id);
   ITEMS[id].location = G.location;
   ROOMS[G.location].items = ROOMS[G.location].items || [];
   ROOMS[G.location].items.push(id);
   out('Dropped.', 'narration');
+  if (wasLit && !isLit()) out('It is now pitch black.', 'narration');   // dropped the only light
 }
 
 function cmdExamine(args) {
