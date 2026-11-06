@@ -582,6 +582,8 @@ function bestMatch(ids, words) {
 function findItem(words) {
   const room = ROOMS[G.location];
   const candidates = [...G.inventory, ...((room && room.items) || [])];
+  // The leaflet can be read or examined while it is still in the open mailbox
+  if (G.location === 'west_of_house' && G.flags.mailbox_open && ITEMS.leaflet.location === 'mailbox') candidates.push('leaflet');
   return bestMatch(candidates, words);
 }
 
