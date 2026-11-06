@@ -1105,6 +1105,11 @@ function runCommand(input) {
     move(/\bdown\b/.test(rest) ? 'down' : 'up'); return;   // "climb tree", "climb stairs", "climb down"
   }
 
+  // A verb that needs an object but got none: "drop", "open", "kill"
+  const NEEDS_OBJECT = ['drop','put','read','open','close','shut','move','push','pull','lift','shift',
+    'light','extinguish','douse','unlight','attack','kill','fight','hit','stab','examine','x','inspect','enter'];
+  if (!rest && NEEDS_OBJECT.includes(verb)) { out('What do you want to ' + (verb === 'x' ? 'examine' : verb) + '?', 'error'); return; }
+
   switch(verb) {
     case 'look': case 'l':
       if (/^(at|in|inside)\b/.test(rest)) cmdExamine(rest);
