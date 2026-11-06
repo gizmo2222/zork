@@ -1060,14 +1060,18 @@ function restart() {
 
 // ── Parser ────────────────────────────────────────────────────
 function parse(raw) {
-  const input = raw.trim().toLowerCase();
-  if (!input) return;
-
+  if (!raw.trim()) return;
   out('> ' + raw, 'player-cmd');
+
+  // Punctuation never matters: "take lamp." and "n!" work like "take lamp" and "n"
+  let input = raw.trim().toLowerCase();
+  if (input !== '?') input = input.replace(/[.,!?;:"]+/g, ' ').trim();
+
   if (G.dead || G.won) {
     if (input === 'restart') { restart(); return; }
     out('Type RESTART to play again.', 'narration'); return;
   }
+  if (!input) { out('I beg your pardon?', 'error'); return; }
   G.moves++;
   runCommand(input);
   updateStatus();
@@ -1083,7 +1087,7 @@ function runCommand(input) {
     move(verb); return;
   }
   // Go <dir>
-  if (verb === 'go' && rest) { move(rest); return; }
+  if (verb === 'go' && rest) { move(rest.replace(/^(?:to\s+)?(?:the\s+)?/, '')); return; }   // "go to the north"
   // Enter/climb window
   if ((verb === 'enter' || verb === 'climb') && rest.includes('window')) { move('window'); return; }
   if ((verb === 'enter' || verb === 'climb') && rest.includes('tree')) { move('up'); return; }
