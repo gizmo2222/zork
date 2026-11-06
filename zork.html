@@ -671,8 +671,11 @@ const DIR_ALIASES = {
   se: 'southeast', sw: 'southwest',
 };
 
+// Own keys only, so "constructor" or "__proto__" never reads Object.prototype
+function own(obj, key) { return obj && Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined; }
+
 function move(dir) {
-  dir = DIR_ALIASES[dir] || dir;
+  dir = own(DIR_ALIASES, dir) || dir;
   const room = ROOMS[G.location];
 
   // Special: trapdoor in living room
@@ -712,7 +715,7 @@ function move(dir) {
     arrive(); return;
   }
 
-  const dest = room.exits && room.exits[dir];
+  const dest = own(room.exits, dir);
   if (!dest) {
     out('You can\'t go that way.', 'error'); return;
   }
@@ -1083,7 +1086,7 @@ function runCommand(input) {
   const rest = words.slice(1).join(' ');
 
   // Direction shortcut
-  if (DIR_ALIASES[verb] || ['north','south','east','west','up','down','northeast','northwest','southeast','southwest'].includes(verb)) {
+  if (own(DIR_ALIASES, verb) || ['north','south','east','west','up','down','northeast','northwest','southeast','southwest'].includes(verb)) {
     move(verb); return;
   }
   // Go <dir>
