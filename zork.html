@@ -558,18 +558,31 @@ const ROOMS = {
 };
 
 // ── Helper: inventory item lookup ─────────────────────────────
-function itemMatches(id, words) {
+// How many of the typed words name this item (0 = no match)
+function matchScore(id, words) {
   const item = ITEMS[id];
-  if (!item) return false;   // e.g. the mailbox, which is scenery rather than an item
+  if (!item) return 0;   // e.g. the mailbox, which is scenery rather than an item
   const names = [...item.name.toLowerCase().split(/\s+/), ...(item.aliases || [])];
-  return mentions(words, ...names);
+  return words.filter(w => names.includes(w)).length;
+}
+function itemMatches(id, words) { return matchScore(id, words) > 0; }
+
+// The id that matches the most typed words, so "crystal skull" beats the crystal trident.
+// Ties go to the earliest id.
+function bestMatch(ids, words) {
+  let best = null, bestScore = 0;
+  for (const id of ids) {
+    const score = matchScore(id, words);
+    if (score > bestScore) { best = id; bestScore = score; }
+  }
+  return best;
 }
 
 // Inventory first, then the room
 function findItem(words) {
   const room = ROOMS[G.location];
   const candidates = [...G.inventory, ...((room && room.items) || [])];
-  return candidates.find(id => itemMatches(id, words)) || null;
+  return bestMatch(candidates, words);
 }
 
 function hasItem(id) { return G.inventory.includes(id); }
@@ -802,7 +815,7 @@ function cmdTake(args) {
 
 function cmdDrop(args) {
   const words = objWords(args);
-  const id = G.inventory.find(i => itemMatches(i, words));
+  const id = bestMatch(G.inventory, words);
   if (!id) { out('You aren\'t carrying that.', 'error'); return; }
   G.inventory = G.inventory.filter(i => i !== id);
   ITEMS[id].location = G.location;
@@ -975,7 +988,7 @@ function cmdPutIn(args) {
 
   if (mentions(contWords, 'trophy', 'case')) {
     if (G.location !== 'living_room') { out('There is no trophy case here.', 'error'); return; }
-    const id = G.inventory.find(i => itemMatches(i, whatWords));
+    const id = bestMatch(G.inventory, whatWords);
     if (!id) { out('You aren\'t carrying that.', 'error'); return; }
     if (!ITEMS[id].treasure) { out('That doesn\'t belong in the trophy case.', 'narration'); return; }
     G.inventory = G.inventory.filter(i => i !== id);
